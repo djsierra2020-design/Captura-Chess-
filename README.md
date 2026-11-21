@@ -17,6 +17,11 @@ La app reconoce la posición, te deja corregirla y sigues jugando contra **Stock
 
 La partida se guarda en el celular; con **Continuar partida guardada** la retomas.
 
+### Modelo para leer las fotos (⚙️ Ajustes)
+- **Automático (por defecto):** lee con Claude Haiku 5.5 (≈ 5–15 pesos por foto) y, solo si la
+  posición resultante es imposible, la vuelve a leer con Claude Opus 5.5.
+- **Haiku**, **Sonnet** u **Opus** fijos: de más barato a más preciso (Opus ≈ 120–400 pesos por foto).
+
 ## Sin clave de API: usar Claude Pro con «📋 Pegar FEN»
 La suscripción Claude Pro no incluye la API, pero sirve igual:
 1. En la app toca **📋 Pegar FEN** → **📝 Copiar pedido para Claude**.

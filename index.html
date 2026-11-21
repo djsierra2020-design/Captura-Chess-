@@ -145,7 +145,7 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
   <section id="vCargando" hidden>
     <div class="tarjeta">
       <img id="fotoCargando" class="foto-mini" alt="Foto del tablero">
-      <p class="estado"><span class="girando"></span>Reconociendo la posición… <span class="suave">(puede tardar hasta un minuto)</span></p>
+      <p class="estado"><span class="girando"></span><span id="textoCargando">Reconociendo la posición…</span> <span class="suave">(puede tardar hasta un minuto)</span></p>
       <button id="btnCancelarRec">Cancelar y armar a mano</button>
     </div>
   </section>
@@ -278,9 +278,17 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
 
 <dialog id="dlgAjustes">
   <h2>Ajustes</h2>
-  <p class="suave">El reconocimiento automático usa la visión de <b>Claude</b>. Crea una clave en <b>console.anthropic.com</b> → API Keys y pégala aquí. Se guarda solo en este celular. Cada foto cuesta unos centavos de dólar en tu cuenta de Anthropic.</p>
+  <p class="suave">El reconocimiento automático usa la visión de <b>Claude</b>. Crea una clave en <b>console.anthropic.com</b> → API Keys y pégala aquí. Se guarda solo en este celular. Cada foto se cobra en tu cuenta de Anthropic según el modelo elegido abajo.</p>
   <label for="inClave">Clave de API de Claude</label>
   <input type="password" id="inClave" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+  <label for="selModelo" style="display:block;margin-top:14px">Modelo para leer las fotos</label>
+  <select id="selModelo" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--borde);background:var(--fondo)">
+    <option value="auto">Automático (recomendado)</option>
+    <option value="haiku">Haiku: el más barato (≈ 5–15 pesos por foto)</option>
+    <option value="sonnet">Sonnet: punto medio (≈ 70–230 pesos)</option>
+    <option value="opus">Opus: el más preciso (≈ 120–400 pesos)</option>
+  </select>
+  <p class="suave" style="margin-top:6px"><b>Automático:</b> lee con Haiku (casi gratis) y, si sale una posición imposible, vuelve a leer con Opus. La mayoría de las fotos cuestan centavos; solo cuando Haiku lee una posición imposible se vuelve a leer con Opus.</p>
   <p class="suave">⚠️ No le prestes el celular con la app abierta a personas en quienes no confíes: con la clave podrían usar tu cuenta.</p>
   <div class="fila" style="margin-top:12px">
     <button id="btnBorrarClave">Borrar clave</button>

@@ -5,7 +5,12 @@ const $ = (id) => document.getElementById(id);
 const INICIAL = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const GLIFO = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const VS = "︎"; // fuerza el glifo de texto (evita el peón emoji en Android)
-const MODELO = "claude-opus-5-5";
+// Modelos para leer fotos. Haiku es el más barato; Opus el más preciso.
+const MODELOS = {
+  haiku: { id: "claude-haiku-5-5", nombre: "Haiku", respaldo: false },
+  sonnet: { id: "claude-sonnet-5-5", nombre: "Sonnet", respaldo: true },
+  opus: { id: "claude-opus-5-5", nombre: "Opus", respaldo: true },
+};
 
 // ---------- almacenamiento local (puede fallar en modo privado) ----------
 const guardar = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} };
@@ -224,7 +229,8 @@ $("btnContinuar").onclick = () => {
 $("lnkAjustes").onclick = (e) => { e.preventDefault(); abrirAjustes(); };
 
 // ---------- ajustes ----------
-function abrirAjustes() { $("inClave").value = leer("clave", ""); $("dlgAjustes").showModal(); }
+function abrirAjustes() { $("inClave").value = leer("clave", ""); $("selModelo").value = leer("modelo", "auto"); $("dlgAjustes").showModal(); }
+$("selModelo").onchange = () => guardar("modelo", $("selModelo").value);
 $("btnAjustes").onclick = abrirAjustes;
 $("btnGuardarClave").onclick = () => { guardar("clave", $("inClave").value.trim()); $("dlgAjustes").close(); actualizarInicio(); };
 $("btnBorrarClave").onclick = () => { guardar("clave", ""); $("inClave").value = ""; $("dlgAjustes").close(); actualizarInicio(); };
@@ -296,14 +302,16 @@ const ESQUEMA = {
 };
 
 let controlRec = null;
-async function reconocer(dataUrl, clave) {
+async function reconocer(dataUrl, clave, clave_modelo) {
+  const mod = MODELOS[clave_modelo];
   const client = new Anthropic({ apiKey: clave, dangerouslyAllowBrowser: true, maxRetries: 2 });
   controlRec = new AbortController();
+  // Sonnet y Opus: si el modelo se niega, la API reintenta sola con otro (Haiku no tiene esa opción).
+  const respaldo = mod.respaldo ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : {};
   const r = await client.beta.messages.create({
-    model: MODELO,
+    model: mod.id,
     max_tokens: 16000,
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
+    ...respaldo,
     output_config: { effort: "high", format: { type: "json_schema", schema: ESQUEMA } },
     system: INSTRUCCIONES,
     messages: [{
@@ -338,34 +346,58 @@ function mensajeError(e) {
   return e.message || String(e);
 }
 
+/** Convierte lo leído en un FEN jugable. Devuelve {fen, notas, adivinado, prob}. */
+function interpretar(r) {
+  let notas = r.notas;
+  if (!r.filasCompletas) notas = (notas ? notas + " " : "") + "No se leyeron todas las filas; revísalas.";
+  const adivinado = r.turno === "?";
+  let fen = matrizAFen(r.m, adivinado ? r.turnoProbable : r.turno);
+  // Si con ese turno la posición es imposible (p. ej. el otro rey en jaque), prueba con el otro bando.
+  if (adivinado && problemaPosicion(fen)) {
+    const otro = matrizAFen(r.m, r.turnoProbable === "w" ? "b" : "w");
+    if (!problemaPosicion(otro)) fen = otro;
+  }
+  return { fen, notas, adivinado, prob: problemaPosicion(fen) };
+}
+const errorDeCuenta = (e) => e instanceof Anthropic.AuthenticationError || e instanceof Anthropic.PermissionDeniedError ||
+  e instanceof Anthropic.RateLimitError || e instanceof Anthropic.APIConnectionError;
+const cancelado = (e) => $("vCargando").hidden || e?.name === "AbortError" || e instanceof Anthropic.APIUserAbortError;
+
 async function procesarFoto(archivo) {
   let dataUrl;
   try { dataUrl = await reducirImagen(archivo); } catch (e) { alert(e.message); return; }
   est.foto = dataUrl;
   const clave = leer("clave", "");
   if (!clave) { $("dlgSinClave").showModal(); return; }
+  const modo = leer("modelo", "auto");
+  // «auto»: primero Haiku (casi gratis); si falla o la posición sale imposible, Opus.
+  const intentos = modo === "auto" ? ["haiku", "opus"] : [MODELOS[modo] ? modo : "haiku"];
   $("fotoCargando").src = dataUrl;
   mostrar("vCargando");
-  try {
-    const r = await reconocer(dataUrl, clave);
-    if ($("vCargando").hidden) return; // el usuario canceló
-    let notas = r.notas;
-    if (!r.filasCompletas) notas = (notas ? notas + " " : "") + "No se leyeron todas las filas; revísalas.";
-    const adivinado = r.turno === "?";
-    let fen = matrizAFen(r.m, adivinado ? r.turnoProbable : r.turno);
-    // Si con ese turno la posición es imposible (p. ej. el otro rey en jaque), prueba con el otro bando.
-    if (adivinado && problemaPosicion(fen)) {
-      const otro = matrizAFen(r.m, r.turnoProbable === "w" ? "b" : "w");
-      if (!problemaPosicion(otro)) fen = otro;
+  let ultimo = null, ultimoError = null;
+  for (const [i, m] of intentos.entries()) {
+    $("textoCargando").textContent = i === 0 ? `Leyendo la foto con ${MODELOS[m].nombre}…`
+      : `${MODELOS[intentos[i - 1]].nombre} no la leyó bien; probando con ${MODELOS[m].nombre} (más preciso)…`;
+    try {
+      const res = interpretar(await reconocer(dataUrl, clave, m));
+      if (cancelado()) return;
+      res.modelo = MODELOS[m].nombre;
+      ultimo = res; ultimoError = null;
+      if (!res.prob) break;          // posición válida: listo
+    } catch (e) {
+      if (cancelado(e)) return;
+      ultimoError = e;
+      if (errorDeCuenta(e)) break;   // clave, saldo o internet: no sirve reintentar con otro modelo
     }
-    const prob = problemaPosicion(fen);
-    if (prob) { abrirEditor(fen, { notas: (notas ? notas + " " : "") + prob + " Corrige la posición.", esError: true }); return; }
-    // Todo en orden: directo a la mejor jugada.
-    abrirAnalisis(fen, { notas, turnoAdivinado: adivinado });
-  } catch (e) {
-    if ($("vCargando").hidden || e.name === "AbortError" || e instanceof Anthropic.APIUserAbortError) return;
-    abrirEditor(INICIAL, { notas: mensajeError(e) + " Puedes armar la posición a mano.", esError: true });
   }
+  if (!ultimo) {
+    abrirEditor(INICIAL, { notas: mensajeError(ultimoError) + " Puedes armar la posición a mano.", esError: true });
+    return;
+  }
+  const notas = [ultimo.notas, `(Leída con ${ultimo.modelo}.)`].filter(Boolean).join(" ");
+  if (ultimo.prob) { abrirEditor(ultimo.fen, { notas: `${notas} ${ultimo.prob} Corrige la posición.`, esError: true }); return; }
+  // Todo en orden: directo a la mejor jugada.
+  abrirAnalisis(ultimo.fen, { notas, turnoAdivinado: ultimo.adivinado });
 }
 $("btnSkPegar").onclick = () => { $("dlgSinClave").close(); abrirPegarFen(); };
 $("btnSkManual").onclick = () => { $("dlgSinClave").close(); abrirEditor(INICIAL, { notas: "Coloca las piezas mirando la foto (Vaciar deja el tablero en blanco)." }); };
