@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Captura Chess</title>
+<meta name="description" content="Toma una foto de una partida de ajedrez, la app reconoce la posición y sigues jugando contra Stockfish.">
+<meta name="theme-color" content="#1f3b2d">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Captura Chess">
+<style>
+:root {
+  --fondo: #f4f1ea; --tarjeta: #ffffff; --texto: #1d1d1b; --suave: #6b665c; --borde: #ddd6c8;
+  --acento: #2f6b4f; --acento-texto: #ffffff; --peligro: #b3412e;
+  --clara: #ecdab9; --oscura: #ae8a68; --marca: rgba(47,107,79,.55); --pista: rgba(56,120,220,.55);
+  --ultima: rgba(240,200,60,.55); --jaque: rgba(220,50,40,.7);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --fondo: #14130f; --tarjeta: #1f1d18; --texto: #eeeae0; --suave: #a59f92; --borde: #36322a;
+          --acento: #4f9c75; --acento-texto: #0d1a13; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--fondo); color: var(--texto);
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+main { max-width: 560px; margin: 0 auto; padding: 12px 16px 32px; }
+header.barra { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+header.barra h1 { font-size: 1.25rem; margin: 0; }
+button, select, input { font: inherit; color: inherit; }
+button { border: 1px solid var(--borde); background: var(--tarjeta); border-radius: 10px; padding: 10px 14px; cursor: pointer; }
+button.principal { background: var(--acento); color: var(--acento-texto); border-color: var(--acento); font-weight: 600; }
+button.grande { width: 100%; padding: 16px; font-size: 1.1rem; margin-bottom: 10px; }
+button:disabled { opacity: .5; }
+button.icono { padding: 8px 10px; }
+.fila { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.fila > button { flex: 1 1 auto; }
+.tarjeta { background: var(--tarjeta); border: 1px solid var(--borde); border-radius: 14px; padding: 14px; margin-bottom: 12px; }
+.suave { color: var(--suave); font-size: .92rem; }
+.aviso { background: #fff4d6; color: #5c4400; border-radius: 10px; padding: 10px 12px; margin: 10px 0; font-size: .95rem; }
+.error { background: #fde3dd; color: #7a1d0e; }
+@media (prefers-color-scheme: dark) { .aviso { background: #3b3214; color: #f3e2a6; } .error { background: #4a1d15; color: #ffd2c7; } }
+[hidden] { display: none !important; }
+
+/* Tablero */
+.tablero-envoltura { display: flex; gap: 6px; align-items: stretch; margin: 8px 0; }
+.tablero-envoltura .tablero { align-self: flex-start; }
+.tablero { position: relative; flex: 1; min-width: 0; aspect-ratio: 1; display: grid; container-type: inline-size;
+  grid-template-columns: repeat(8, 1fr); grid-template-rows: repeat(8, 1fr);
+  border-radius: 6px; overflow: hidden; user-select: none; -webkit-user-select: none; touch-action: manipulation; }
+.casilla { position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; min-height: 0; overflow: hidden; }
+.casilla.clara { background: var(--clara); } .casilla.oscura { background: var(--oscura); }
+.casilla.ultima::before, .casilla.sel::before, .casilla.pista::before, .casilla.jaque::before {
+  content: ""; position: absolute; inset: 0; }
+.casilla.ultima::before { background: var(--ultima); }
+.casilla.sel::before { background: var(--marca); }
+.casilla.pista::before { background: var(--pista); }
+.casilla.jaque::before { background: radial-gradient(circle, var(--jaque) 0%, transparent 75%); }
+.casilla.destino::after { content: ""; position: absolute; width: 30%; height: 30%; border-radius: 50%; background: rgba(0,0,0,.22); }
+.casilla.destino.ocupada::after { width: 92%; height: 92%; background: none; border: 4px solid rgba(0,0,0,.22); }
+.pieza { position: relative; z-index: 1; font-size: min(9vw, 48px); line-height: 1;
+  font-family: "Segoe UI Symbol", "Noto Sans Symbols 2", "DejaVu Sans", "Arial Unicode MS", sans-serif; }
+.pieza.b { color: #fbfaf6; -webkit-text-stroke: 1.2px #222; text-shadow: 0 1px 2px rgba(0,0,0,.35); }
+.pieza.n { color: #1b1a18; text-shadow: 0 1px 1px rgba(255,255,255,.25); }
+.tablero .pieza { font-size: 10.5cqw; }
+.coord { position: absolute; font-size: 10px; font-weight: 700; opacity: .75; z-index: 2; pointer-events: none; }
+.coord.f { left: 3px; top: 2px; } .coord.c { right: 3px; bottom: 1px; }
+.casilla.clara .coord { color: var(--oscura); } .casilla.oscura .coord { color: var(--clara); }
+
+/* Barra de evaluación */
+.evalbar { width: 16px; border-radius: 6px; background: #2a2a2a; position: relative; overflow: hidden; border: 1px solid var(--borde); }
+.evalbar .blanco { position: absolute; left: 0; right: 0; bottom: 0; background: #f2f0ea; transition: height .4s; height: 50%; }
+.evalbar.girada .blanco { bottom: auto; top: 0; }
+
+/* Editor */
+.paleta { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin: 8px 0; }
+.paleta button { padding: 2px 0; aspect-ratio: 1; display: flex; align-items: center; justify-content: center; background: var(--clara); }
+.paleta button .pieza { font-size: min(8vw, 38px); }
+.paleta button.activa { outline: 3px solid var(--acento); outline-offset: -3px; }
+.paleta button.borrar { font-size: 1.3rem; background: var(--tarjeta); }
+.foto-mini { width: 100%; max-height: 260px; object-fit: contain; border-radius: 10px; background: #000; display: block; }
+details summary { cursor: pointer; color: var(--suave); }
+.segmentado { display: inline-flex; border: 1px solid var(--borde); border-radius: 10px; overflow: hidden; }
+.segmentado button { border: 0; border-radius: 0; padding: 8px 12px; }
+.segmentado button.activa { background: var(--acento); color: var(--acento-texto); }
+
+.estado { font-weight: 600; min-height: 1.4em; margin: 6px 0; }
+.jugadas { font-family: ui-monospace, Menlo, monospace; font-size: .9rem; color: var(--suave); max-height: 6.5em; overflow-y: auto; word-break: break-word; }
+
+/* Diálogos */
+dialog { border: 0; border-radius: 16px; padding: 18px; background: var(--tarjeta); color: var(--texto); width: min(92vw, 440px); }
+dialog::backdrop { background: rgba(0,0,0,.5); }
+dialog h2 { margin-top: 0; font-size: 1.15rem; }
+dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--borde); background: var(--fondo); }
+.promo { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.promo button { aspect-ratio: 1; background: var(--clara); }
+.girando { display: inline-block; width: 18px; height: 18px; border: 3px solid currentColor; border-right-color: transparent;
+  border-radius: 50%; animation: gira 0.8s linear infinite; vertical-align: -3px; margin-right: 8px; }
+@keyframes gira { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<main>
+  <header class="barra">
+    <h1>♞ Captura Chess</h1>
+    <button class="icono" id="btnAjustes" aria-label="Ajustes">⚙️</button>
+  </header>
+
+  <!-- INICIO -->
+  <section id="vInicio">
+    <div class="tarjeta">
+      <p style="margin-top:0">Toma una foto de un tablero (real o en pantalla). La app reconoce la posición, la corriges si hace falta y sigues jugando contra <b>Stockfish</b>.</p>
+      <button class="principal grande" id="btnCamara">📷 Tomar foto</button>
+      <button class="grande" id="btnGaleria">🖼️ Elegir foto o captura</button>
+      <div class="fila">
+        <button id="btnManual">✏️ Armar posición a mano</button>
+        <button id="btnInicial">♟ Partida nueva</button>
+      </div>
+      <button class="grande" id="btnContinuar" style="margin-top:10px" hidden>▶️ Continuar partida guardada</button>
+      <div class="aviso" id="avisoClave" hidden>Para el reconocimiento automático pon tu clave de Claude en <a href="#" id="lnkAjustes">Ajustes ⚙️</a>. Sin clave puedes usar la foto como guía y armar la posición a mano.</div>
+    </div>
+    <input type="file" id="inCamara" accept="image/*" capture="environment" hidden>
+    <input type="file" id="inGaleria" accept="image/*" hidden>
+  </section>
+
+  <!-- RECONOCIENDO -->
+  <section id="vCargando" hidden>
+    <div class="tarjeta">
+      <img id="fotoCargando" class="foto-mini" alt="Foto del tablero">
+      <p class="estado"><span class="girando"></span>Reconociendo la posición… <span class="suave">(puede tardar hasta un minuto)</span></p>
+      <button id="btnCancelarRec">Cancelar y armar a mano</button>
+    </div>
+  </section>
+
+  <!-- EDITOR -->
+  <section id="vEditor" hidden>
+    <div class="tarjeta">
+      <details id="detFoto" open hidden>
+        <summary>Foto original</summary>
+        <img id="fotoEditor" class="foto-mini" alt="Foto del tablero" style="margin-top:8px">
+      </details>
+      <div class="aviso" id="notasRec" hidden></div>
+      <p class="suave" style="margin:8px 0 0">Revisa la posición. Toca una pieza de abajo y luego las casillas para colocarla; con 🗑️ borras. Toca de nuevo una casilla con la misma pieza para quitarla.</p>
+      <div class="tablero-envoltura"><div class="tablero" id="tabEditor"></div></div>
+      <div class="paleta" id="paleta"></div>
+      <div class="fila" style="margin:8px 0">
+        <span>Le toca a:</span>
+        <div class="segmentado" id="segTurno">
+          <button data-v="w">Blancas</button><button data-v="b">Negras</button>
+        </div>
+      </div>
+      <div class="fila" style="margin-bottom:8px">
+        <button id="btnGirarEd">🔄 Girar</button>
+        <button id="btnVaciar">Vaciar</button>
+        <button id="btnPosInicial">Inicial</button>
+      </div>
+      <div class="aviso error" id="errEditor" hidden></div>
+      <button class="principal grande" id="btnJugarDesde">Jugar desde esta posición ▶️</button>
+      <button id="btnVolverInicio" style="width:100%">← Volver</button>
+    </div>
+  </section>
+
+  <!-- JUGAR -->
+  <section id="vJugar" hidden>
+    <div class="tarjeta">
+      <div class="fila" style="justify-content:space-between">
+        <div class="segmentado" id="segColor">
+          <button data-v="w">Juego con blancas</button><button data-v="b">con negras</button>
+        </div>
+        <label class="suave">Nivel
+          <select id="selNivel">
+            <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option>
+            <option value="5">5</option><option value="6">6</option><option value="7">7</option><option value="8">8 (máximo)</option>
+          </select>
+        </label>
+      </div>
+      <div class="tablero-envoltura">
+        <div class="evalbar" id="evalbar" title="Ventaja"><div class="blanco" id="evalBlanco"></div></div>
+        <div class="tablero" id="tabJuego"></div>
+      </div>
+      <div class="estado" id="estado"></div>
+      <div class="suave" id="evalTexto"></div>
+      <div class="fila" style="margin:8px 0">
+        <button id="btnPista">💡 Pista</button>
+        <button id="btnDeshacer">↩️ Deshacer</button>
+        <button id="btnGirar">🔄 Girar</button>
+      </div>
+      <div class="fila" style="margin-bottom:8px">
+        <button id="btnEditar">✏️ Editar posición</button>
+        <button id="btnNuevaFoto">📷 Nueva foto</button>
+      </div>
+      <details>
+        <summary>Jugadas y posición (FEN/PGN)</summary>
+        <div class="jugadas" id="jugadas" style="margin:8px 0"></div>
+        <div class="fila"><button id="btnCopiarFen">Copiar FEN</button><button id="btnCopiarPgn">Copiar PGN</button></div>
+      </details>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlgAjustes">
+  <h2>Ajustes</h2>
+  <p class="suave">El reconocimiento automático usa la visión de <b>Claude</b>. Crea una clave en <b>console.anthropic.com</b> → API Keys y pégala aquí. Se guarda solo en este celular. Cada foto cuesta unos centavos de dólar en tu cuenta de Anthropic.</p>
+  <label for="inClave">Clave de API de Claude</label>
+  <input type="password" id="inClave" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+  <p class="suave">⚠️ No le prestes el celular con la app abierta a personas en quienes no confíes: con la clave podrían usar tu cuenta.</p>
+  <div class="fila" style="margin-top:12px">
+    <button id="btnBorrarClave">Borrar clave</button>
+    <button class="principal" id="btnGuardarClave">Guardar</button>
+  </div>
+</dialog>
+
+<dialog id="dlgPromo">
+  <h2>Coronar como…</h2>
+  <div class="promo" id="promoOpciones"></div>
+</dialog>
+
+<script src="vendor/chess.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
