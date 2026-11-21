@@ -5,8 +5,9 @@ La app reconoce la posición, te deja corregirla y sigues jugando contra **Stock
 
 ## Cómo se usa
 1. **📷 Tomar foto** (o **🖼️ Elegir foto o captura**).
-2. Claude lee la posición. Revisa el tablero: toca una pieza de la paleta y luego la casilla para
-   corregir; 🗑️ borra. Elige **a quién le toca**.
+2. Con la clave de API puesta, Claude lee la posición y la app va **directo a la mejor jugada**.
+   Si en la foto no se ve a quién le toca, lo calcula por el número de jugadas (botón 🔁 para
+   cambiarlo). En «Ver la foto y comparar» → «Corregir» arreglas cualquier pieza mal leída.
 3. **🔍 Analizar esta posición**: Stockfish a máxima fuerza muestra la evaluación (barra de ventaja),
    la mejor jugada marcada en el tablero y las 3 mejores líneas. Toca una línea para hacer su jugada o
    mueve piezas de cualquier bando para probar ideas; ◀ ▶ para ir y volver. «Abrir en Lichess» lleva

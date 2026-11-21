@@ -184,10 +184,18 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
   <section id="vAnalisis" hidden>
     <div class="tarjeta">
       <div class="origen" id="origenAnalisis"></div>
+      <details id="anFotoBox" hidden>
+        <summary>Ver la foto y comparar</summary>
+        <img id="anFoto" class="foto-mini" alt="Foto del tablero" style="margin:8px 0">
+        <button id="btnAnCorregir" style="width:100%">✏️ La posición está mal: corregir</button>
+      </details>
+      <div class="aviso" id="anNotas" hidden></div>
+      <div class="aviso" id="anTurnoAviso" hidden>En la foto no se ve a quién le toca: lo calculé por el número de jugadas. Si no es así, toca el botón 🔁.</div>
       <div class="fila" style="justify-content:space-between">
         <b id="anTurno"></b>
         <span class="suave" id="anProfundidad"></span>
       </div>
+      <button id="btnAnTurno" style="width:100%;margin-top:6px" hidden></button>
       <div class="tablero-envoltura">
         <div class="evalbar" id="evalbarAn" title="Ventaja"><div class="blanco" id="evalBlancoAn"></div></div>
         <div class="tablero" id="tabAnalisis"></div>

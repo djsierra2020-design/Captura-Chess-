@@ -252,13 +252,32 @@ captura o foto de la pantalla de Lichess, Chess.com u otra app, un libro o la TV
 
 Devuelve la posición SIEMPRE desde el punto de vista de las blancas: filas[0] es la fila 8
 (a8..h8) y filas[7] es la fila 1 (a1..h1); dentro de cada fila, de la columna a a la h.
-Si en la imagen las negras están abajo, gira la posición antes de escribirla.
-Usa las coordenadas impresas en el tablero si se ven; si no, recuerda que h1 es una casilla clara.
+
+Cómo orientarte (muy importante):
+1. Decide qué bando está más cerca de la cámara mirando dónde están la mayoría de las piezas de
+   cada color, los peones y los reyes/torres que no se han movido.
+2. Para un jugador sentado frente al tablero, la casilla de la esquina inferior derecha es clara.
+   Úsalo para confirmar la orientación.
+3. Las letras y números impresos en tableros físicos a menudo están al revés o no corresponden
+   con cómo se colocaron las piezas: NO te fíes de ellos si contradicen los puntos 1 y 2.
+   En capturas de pantalla de apps sí son fiables.
+4. Si las blancas están lejos de la cámara (negras abajo), gira la posición antes de escribirla.
+
+Para leer las casillas en una foto con perspectiva, sigue las líneas del tablero: las piezas
+altas se inclinan, así que ubica cada pieza por su BASE (donde toca el tablero), no por su cabeza.
+Cuenta columnas y filas desde las esquinas. Distingue bien: rey (el más alto, con cruz o punta),
+dama (alta, con corona o bola), alfil (cabeza en punta o con ranura), caballo (cabeza de caballo),
+torre (almenas o cilindro plano), peón (el más bajo, con bola). Comprueba que el resultado sea
+una posición de ajedrez posible (1 rey por bando, máximo 8 peones, sin peones en filas 1 y 8).
 
 Cada fila tiene exactamente 8 caracteres: K Q R B N P para piezas blancas, k q r b n p para
 negras y "." para casilla vacía. Revisa casilla por casilla y comprueba que cada fila tenga 8.
-En "turno" pon "w" o "b" solo si la imagen lo indica (reloj activo, última jugada resaltada,
-texto de turno); si no se sabe, "?".
+En "turno" pon "w" o "b" solo si la imagen lo indica claramente (reloj activo, última jugada
+resaltada, texto de turno); si no se sabe, "?".
+En "turno_probable" pon siempre "w" o "b": tu mejor estimación. Si no hay pistas, cuenta cuántas
+jugadas parece haber hecho cada bando (piezas fuera de su casilla inicial): si van parejos le toca
+a las blancas; si las blancas llevan una más, a las negras. Ten en cuenta también que el bando que
+no juega no puede estar en jaque.
 En "notas" explica en español, en una o dos frases cortas, cualquier duda (casillas tapadas,
 piezas que no se distinguen). Si todo está claro, deja "notas" vacío.
 Si la imagen no muestra un tablero de ajedrez, es_tablero = false.`;
@@ -269,9 +288,10 @@ const ESQUEMA = {
     es_tablero: { type: "boolean" },
     filas: { type: "array", items: { type: "string" } },
     turno: { type: "string", enum: ["w", "b", "?"] },
+    turno_probable: { type: "string", enum: ["w", "b"] },
     notas: { type: "string" },
   },
-  required: ["es_tablero", "filas", "turno", "notas"],
+  required: ["es_tablero", "filas", "turno", "turno_probable", "notas"],
   additionalProperties: false,
 };
 
@@ -305,7 +325,8 @@ async function reconocer(dataUrl, clave) {
     const s = String(f).replace(/\s+/g, "").replace(/[1-8]/g, (n) => ".".repeat(+n));
     return [...(s + "........").slice(0, 8)].map((c) => ("KQRBNPkqrbnp".includes(c) ? c : null));
   });
-  return { m, turno: d.turno, notas: d.notas || "", filasCompletas: (d.filas || []).length === 8 };
+  return { m, turno: d.turno, turnoProbable: d.turno_probable === "b" ? "b" : "w", notas: d.notas || "",
+           filasCompletas: (d.filas || []).length === 8 };
 }
 
 function mensajeError(e) {
@@ -330,8 +351,17 @@ async function procesarFoto(archivo) {
     if ($("vCargando").hidden) return; // el usuario canceló
     let notas = r.notas;
     if (!r.filasCompletas) notas = (notas ? notas + " " : "") + "No se leyeron todas las filas; revísalas.";
-    if (r.turno === "?") notas = (notas ? notas + " " : "") + "No se sabe a quién le toca: elígelo abajo.";
-    abrirEditor(matrizAFen(r.m, r.turno === "b" ? "b" : "w"), { notas, preguntarTurno: r.turno === "?" });
+    const adivinado = r.turno === "?";
+    let fen = matrizAFen(r.m, adivinado ? r.turnoProbable : r.turno);
+    // Si con ese turno la posición es imposible (p. ej. el otro rey en jaque), prueba con el otro bando.
+    if (adivinado && problemaPosicion(fen)) {
+      const otro = matrizAFen(r.m, r.turnoProbable === "w" ? "b" : "w");
+      if (!problemaPosicion(otro)) fen = otro;
+    }
+    const prob = problemaPosicion(fen);
+    if (prob) { abrirEditor(fen, { notas: (notas ? notas + " " : "") + prob + " Corrige la posición.", esError: true }); return; }
+    // Todo en orden: directo a la mejor jugada.
+    abrirAnalisis(fen, { notas, turnoAdivinado: adivinado });
   } catch (e) {
     if ($("vCargando").hidden || e.name === "AbortError" || e instanceof Anthropic.APIUserAbortError) return;
     abrirEditor(INICIAL, { notas: mensajeError(e) + " Puedes armar la posición a mano.", esError: true });
@@ -406,9 +436,13 @@ $("btnAnalizarDesde").onclick = () => { const fen = fenDelEditor(); if (fen) abr
 // ---------- análisis ----------
 const an = { juego: null, futuro: [], lineas: [], ctrl: null, sel: null, girado: false, ultima: null, profundidad: 0, listo: false, dibujoPendiente: false };
 
-function abrirAnalisis(fen) {
+function abrirAnalisis(fen, { notas = "", turnoAdivinado = false } = {}) {
   an.juego = new Chess(fen); an.inicioFen = fen; an.futuro = []; an.sel = null; an.ultima = null;
-  an.girado = fen.split(" ")[1] === "b";
+  an.girado = false;
+  an.turnoAdivinado = turnoAdivinado;
+  $("anFotoBox").hidden = !est.foto;
+  if (est.foto) $("anFoto").src = est.foto;
+  $("anNotas").hidden = !notas; $("anNotas").textContent = notas ? "Nota del reconocimiento: " + notas : "";
   mostrar("vAnalisis");
   reanalizar();
 }
@@ -505,6 +539,10 @@ function dibujarAnalisis() {
   dibujarTablero($("tabAnalisis"), fenAMatriz(fen), { girado: an.girado, clases, alTocar: tocarAnalisis });
   $("evalbarAn").classList.toggle("girada", an.girado);
   $("anTurno").textContent = `Juegan las ${g.turn() === "w" ? "blancas" : "negras"}`;
+  const enInicio = g.history().length === 0;
+  $("btnAnTurno").hidden = !enInicio;
+  $("btnAnTurno").textContent = `🔁 ¿Les toca a las ${g.turn() === "w" ? "negras" : "blancas"}?`;
+  $("anTurnoAviso").hidden = !(enInicio && an.turnoAdivinado);
   $("origenAnalisis").innerHTML = textoOrigen(an.inicioFen, "Analizando") +
     (g.history().length ? `<small>${g.history().length} jugada(s) probadas desde ahí · ⏮ vuelve a la posición original</small>` : "");
   const fin = textoFinDePartida(g);
@@ -578,6 +616,15 @@ function retrocederAnalisis() {
   const h = an.juego.history({ verbose: true }); an.ultima = h[h.length - 1] || null; an.sel = null;
   return true;
 }
+$("btnAnTurno").onclick = () => {
+  const p = an.juego.fen().split(" ");
+  p[1] = p[1] === "w" ? "b" : "w"; p[3] = "-";
+  const fen = p.join(" "), prob = problemaPosicion(fen);
+  if (prob) { alert(prob); return; }
+  const notas = $("anNotas").hidden ? "" : $("anNotas").textContent.replace(/^Nota del reconocimiento: /, "");
+  abrirAnalisis(fen, { notas });
+};
+$("btnAnCorregir").onclick = () => abrirEditor(an.inicioFen, { notas: "Corrige las piezas que estén mal y vuelve a analizar." });
 $("btnAnAtras").onclick = () => { if (retrocederAnalisis()) reanalizar(); };
 $("btnAnInicio").onclick = () => { let x = false; while (retrocederAnalisis()) x = true; if (x) reanalizar(); };
 $("btnAnAdelante").onclick = () => { const m = an.futuro.pop(); if (m) jugarAnalisis({ from: m.from, to: m.to, promotion: m.promotion }, { conservarFuturo: true }); };
