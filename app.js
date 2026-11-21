@@ -76,6 +76,7 @@ function mostrar(v) {
 }
 
 // ---------- motor Stockfish (Web Worker) ----------
+const PROFUNDIDAD_ANALISIS = 24;
 const NIVELES = { // como los niveles 1-8 de Lichess, aproximado
   1: { skill: 0, depth: 1, ms: 80 },   2: { skill: 3, depth: 2, ms: 150 },
   3: { skill: 6, depth: 4, ms: 250 },  4: { skill: 9, depth: 6, ms: 400 },
@@ -84,7 +85,7 @@ const NIVELES = { // como los niveles 1-8 de Lichess, aproximado
 };
 class Motor {
   constructor() {
-    this.w = new Worker("vendor/stockfish.js");
+    this.w = new Worker("vendor/stockfish-19-lite-single.js");
     this.oyente = null;
     this.w.onmessage = (e) => { const l = typeof e.data === "string" ? e.data : ""; this.oyente && this.oyente(l); };
     this.cola = this.esperar("uci", "uciok").then(() => this.esperar("isready", "readyok"));
@@ -143,7 +144,7 @@ class Motor {
       this.w.postMessage("setoption name Skill Level value 20");
       this.w.postMessage("setoption name MultiPV value 3");
       this.w.postMessage(`position fen ${fen}`);
-      this.w.postMessage("go depth 22");
+      this.w.postMessage(`go depth ${PROFUNDIDAD_ANALISIS}`);
     });
     const p = this.cola.then(tarea);
     this.cola = p.catch(() => {});
@@ -406,7 +407,7 @@ $("btnAnalizarDesde").onclick = () => { const fen = fenDelEditor(); if (fen) abr
 const an = { juego: null, futuro: [], lineas: [], ctrl: null, sel: null, girado: false, ultima: null, profundidad: 0, listo: false, dibujoPendiente: false };
 
 function abrirAnalisis(fen) {
-  an.juego = new Chess(fen); an.futuro = []; an.sel = null; an.ultima = null;
+  an.juego = new Chess(fen); an.inicioFen = fen; an.futuro = []; an.sel = null; an.ultima = null;
   an.girado = fen.split(" ")[1] === "b";
   mostrar("vAnalisis");
   reanalizar();
@@ -414,10 +415,20 @@ function abrirAnalisis(fen) {
 function detenerAnalisis() { if (an.ctrl) { an.ctrl.detener(); an.ctrl = null; } }
 function reanalizar() {
   detenerAnalisis();
-  an.lineas = []; an.profundidad = 0; an.listo = false;
+  an.lineas = []; an.profundidad = 0; an.listo = false; an.nube = null;
   dibujarAnalisis();
   if (an.juego.game_over()) return;
   const fen = an.juego.fen();
+  // Base de análisis profundo de Lichess (si la posición ya fue analizada allí, llega al instante).
+  fetch("https://lichess.org/api/cloud-eval?multiPv=3&fen=" + encodeURIComponent(fen))
+    .then((r) => (r.ok ? r.json() : null))
+    .then((d) => {
+      if (!d || !Array.isArray(d.pvs) || !d.pvs.length || an.juego.fen() !== fen) return;
+      an.nube = { depth: d.depth, lineas: d.pvs.map((p, i) => ({
+        n: i + 1, depth: d.depth, cp: p.cp ?? null, mate: p.mate ?? null, pv: String(p.moves).split(" ") })) };
+      programarDibujo();
+    })
+    .catch(() => {});
   an.ctrl = obtenerMotor().analizar(fen, (i) => {
     if (an.juego.fen() !== fen) return;
     an.lineas[i.n - 1] = i;
@@ -435,15 +446,35 @@ function textoEval(cp, mate) {
   if (cp == null) return "…";
   return (cp > 0 ? "+" : cp < 0 ? "−" : "") + (Math.abs(cp) / 100).toFixed(1);
 }
+/** Notación en español: R rey, D dama, T torre, A alfil, C caballo. */
+const sanEs = (san) => san.replace(/[KQRBN]/g, (c) => ({ K: "R", Q: "D", R: "T", B: "A", N: "C" })[c]);
+const NOMBRE = { p: "Peón", n: "Caballo", b: "Alfil", r: "Torre", q: "Dama", k: "Rey" };
+/** Jugada UCI -> objeto para chess.js (acepta enroques escritos rey→torre, como los da Lichess). */
+function uciAJugada(c, u) {
+  let from = u.slice(0, 2), to = u.slice(2, 4);
+  const p = c.get(from), dest = c.get(to);
+  if (p && p.type === "k" && dest && dest.type === "r" && dest.color === p.color) to = (to[0] === "h" ? "g" : "c") + to[1];
+  return { from, to, promotion: u[4] };
+}
+function describirJugada(m) {
+  let t;
+  if (m.flags.includes("k")) t = "Enroque corto";
+  else if (m.flags.includes("q")) t = "Enroque largo";
+  else t = `${NOMBRE[m.piece]} de ${m.from} ${m.captured ? "captura en" : "a"} ${m.to}`;
+  if (m.promotion) t += `, corona ${NOMBRE[m.promotion].toLowerCase()}`;
+  if (m.san.endsWith("#")) t += " — ¡jaque mate!"; else if (m.san.endsWith("+")) t += ", con jaque";
+  return t;
+}
 function pvASan(fen, pv, max = 10) {
   const c = new Chess(fen), partes = [];
   let num = +fen.split(" ")[5] || 1, primero = true;
   for (const u of pv.slice(0, max)) {
     const blancas = c.turn() === "w";
-    const m = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
+    const m = c.move(uciAJugada(c, u));
     if (!m) break;
-    if (blancas) partes.push(`${num}. ${m.san}`);
-    else { partes.push(primero ? `${num}… ${m.san}` : m.san); num++; }
+    const s = sanEs(m.san);
+    if (blancas) partes.push(`${num}. ${s}`);
+    else { partes.push(primero ? `${num}… ${s}` : s); num++; }
     primero = false;
   }
   return partes.join(" ");
@@ -458,7 +489,9 @@ function textoFinDePartida(g) {
 function dibujarAnalisis() {
   const g = an.juego, fen = g.fen(), clases = {};
   if (an.ultima) { clases[an.ultima.from] = "ultima"; clases[an.ultima.to] = "ultima"; }
-  const mejor = an.lineas[0]?.pv?.[0];
+  const usarNube = !!(an.nube && an.nube.depth > an.profundidad);
+  const lineas = usarNube ? an.nube.lineas : an.lineas;
+  const mejor = lineas[0]?.pv?.[0];
   if (mejor) { clases[mejor.slice(0, 2)] = "pista"; clases[mejor.slice(2, 4)] = "pista"; }
   if (g.in_check()) {
     fenAMatriz(fen).forEach((fila, f) => fila.forEach((p, c) => {
@@ -472,30 +505,48 @@ function dibujarAnalisis() {
   dibujarTablero($("tabAnalisis"), fenAMatriz(fen), { girado: an.girado, clases, alTocar: tocarAnalisis });
   $("evalbarAn").classList.toggle("girada", an.girado);
   $("anTurno").textContent = `Juegan las ${g.turn() === "w" ? "blancas" : "negras"}`;
+  $("origenAnalisis").innerHTML = textoOrigen(an.inicioFen, "Analizando") +
+    (g.history().length ? `<small>${g.history().length} jugada(s) probadas desde ahí · ⏮ vuelve a la posición original</small>` : "");
   const fin = textoFinDePartida(g);
-  $("anProfundidad").textContent = fin ? "" : an.profundidad ? `Profundidad ${an.profundidad}${an.listo ? " ✓" : " · analizando…"}` : "Analizando…";
-  const l1 = an.lineas[0];
+  $("anProfundidad").textContent = fin ? "" : usarNube ? `Lichess · profundidad ${an.nube.depth} ✓`
+    : an.profundidad ? `Stockfish 19 · profundidad ${an.profundidad}${an.listo ? " ✓" : " · calculando…"}` : "Calculando…";
+  const l1 = lineas[0];
   if (fin) {
     if (g.in_checkmate()) actualizarEval(null, g.turn() === "w" ? -1 : 1, "An"); else actualizarEval(0, null, "An");
     $("evalTextoAn").textContent = fin;
   }
-  else if (l1) {
-    actualizarEval(l1.cp, l1.mate, "An");
-    const sanMejor = pvASan(fen, l1.pv, 1).replace(/^\d+\.(…)?\s*/, "");
-    $("evalTextoAn").textContent += ` · Mejor jugada: ${sanMejor}`;
-  } else { actualizarEval(null, null, "An"); $("evalTextoAn").textContent = "Stockfish está calculando…"; }
+  else if (l1) actualizarEval(l1.cp, l1.mate, "An");
+  else { actualizarEval(null, null, "An"); $("evalTextoAn").textContent = ""; }
+  // Tarjeta grande con la mejor jugada
+  const tarjeta = $("anMejor");
+  if (fin) tarjeta.hidden = true;
+  else {
+    tarjeta.hidden = false;
+    const bando = g.turn() === "w" ? "blancas" : "negras";
+    if (!l1) tarjeta.innerHTML = `<div class="et">Mejor jugada para las ${bando}</div><div class="san"><span class="girando"></span>calculando…</div>`;
+    else {
+      const m = new Chess(fen).move(uciAJugada(new Chess(fen), l1.pv[0]));
+      const firme = usarNube || an.listo || an.profundidad >= 18;
+      tarjeta.innerHTML = `<div class="et">Mejor jugada para las ${bando}</div>
+        <div class="san"></div><div class="desc"></div><div class="conf"></div>`;
+      tarjeta.querySelector(".san").textContent = m ? sanEs(m.san) : l1.pv[0];
+      tarjeta.querySelector(".desc").textContent = m ? describirJugada(m) : "";
+      tarjeta.querySelector(".conf").textContent = firme ? "✓ Análisis profundo" : "Aún calculando: puede cambiar en unos segundos.";
+      tarjeta.classList.toggle("firme", firme);
+    }
+  }
   const cont = $("anLineas"); cont.innerHTML = "";
-  an.lineas.forEach((l) => {
+  lineas.forEach((l) => {
     if (!l) return;
     const b = document.createElement("button");
     b.className = "linea";
     b.innerHTML = `<span class="ev"></span><span class="pv"></span>`;
     b.querySelector(".ev").textContent = textoEval(l.cp, l.mate);
     b.querySelector(".pv").textContent = pvASan(fen, l.pv);
-    b.onclick = () => jugarAnalisis({ from: l.pv[0].slice(0, 2), to: l.pv[0].slice(2, 4), promotion: l.pv[0][4] });
+    b.onclick = () => jugarAnalisis(uciAJugada(an.juego, l.pv[0]));
     cont.appendChild(b);
   });
-  $("anJugadas").textContent = g.pgn().replace(/^\[.*\]\s*$/gm, "").trim() || "(sin jugadas)";
+  $("anJugadas").textContent = sanEs(g.pgn().replace(/^\[.*\]\s*$/gm, "").trim()) || "(sin jugadas)";
   $("btnAnAtras").disabled = $("btnAnInicio").disabled = g.history().length === 0;
   $("btnAnAdelante").disabled = an.futuro.length === 0;
 }
@@ -542,7 +593,7 @@ function empezarJuego(fen, jugadas = []) {
   est.inicioFen = fen;
   est.juego = new Chess(fen);
   for (const j of jugadas) est.juego.move({ from: j.slice(0, 2), to: j.slice(2, 4), promotion: j[4] });
-  est.sel = null; est.pista = null; est.generacion++;
+  est.sel = null; est.pista = null; est.generacion++; est.verIdx = null;
   const hist = est.juego.history({ verbose: true });
   est.ultima = hist.length ? hist[hist.length - 1] : null;
   est.girado = est.color === "b";
@@ -551,15 +602,42 @@ function empezarJuego(fen, jugadas = []) {
   mostrar("vJugar");
   dibujarJuego();
   obtenerMotor();
-  turnoMotorSiToca();
+  if (est.juego.turn() === est.color) { if ($("chkSiempre").checked) mostrarPista(); }
+  else turnoMotorSiToca();
 }
 function guardarPartida() {
   guardar("partida", { inicio: est.inicioFen, color: est.color, jugadas: est.juego.history({ verbose: true }).map((m) => m.from + m.to + (m.promotion || "")) });
 }
+/** Texto de origen: de dónde salió la posición inicial. */
+function textoOrigen(fen, verbo) {
+  if (fen === INICIAL) return `${verbo} desde la posición inicial`;
+  const desde = est.foto ? "de la foto" : "elegida";
+  return `${verbo} a partir de la posición ${desde}<small>Empezó jugando las ${fen.split(" ")[1] === "w" ? "blancas" : "negras"}</small>`;
+}
+/** Posición que se está viendo (con ◀ ▶ se pueden repasar las jugadas sin borrarlas). */
+function juegoVisible() {
+  if (est.verIdx == null) return est.juego;
+  const c = new Chess(est.inicioFen), h = est.juego.history({ verbose: true });
+  for (let i = 0; i < est.verIdx; i++) c.move({ from: h[i].from, to: h[i].to, promotion: h[i].promotion });
+  return c;
+}
+function irA(idx) {
+  const n = est.juego.history().length;
+  idx = Math.max(0, Math.min(n, idx));
+  est.verIdx = idx >= n ? null : idx;
+  est.sel = null;
+  dibujarJuego();
+}
+$("btnJInicio").onclick = () => irA(0);
+$("btnJAtras").onclick = () => irA((est.verIdx ?? est.juego.history().length) - 1);
+$("btnJAdelante").onclick = () => irA((est.verIdx ?? est.juego.history().length) + 1);
+$("btnJFinal").onclick = () => irA(Infinity);
 function dibujarJuego() {
-  const g = est.juego, clases = {};
-  if (est.ultima) { clases[est.ultima.from] = "ultima"; clases[est.ultima.to] = "ultima"; }
-  if (est.pista) { clases[est.pista.slice(0, 2)] = "pista"; clases[est.pista.slice(2, 4)] = "pista"; }
+  const g = juegoVisible(), clases = {}, total = est.juego.history().length, viendo = est.verIdx != null;
+  const ultima = viendo ? (est.verIdx ? est.juego.history({ verbose: true })[est.verIdx - 1] : null) : est.ultima;
+  $("origenJuego").innerHTML = textoOrigen(est.inicioFen, "Jugando");
+  if (ultima) { clases[ultima.from] = "ultima"; clases[ultima.to] = "ultima"; }
+  if (est.pista && !viendo) { clases[est.pista.slice(0, 2)] = "pista"; clases[est.pista.slice(2, 4)] = "pista"; }
   if (g.in_check()) {
     const m = fenAMatriz(g.fen()), rey = g.turn() === "w" ? "K" : "k";
     m.forEach((fila, f) => fila.forEach((p, c) => { if (p === rey) clases[nombreCasilla(f, c)] = (clases[nombreCasilla(f, c)] || "") + " jaque"; }));
@@ -571,9 +649,11 @@ function dibujarJuego() {
   dibujarTablero($("tabJuego"), fenAMatriz(g.fen()), { girado: est.girado, clases, alTocar: tocarCasilla });
   $("evalbar").classList.toggle("girada", est.girado);
   marcarSegmentado("segColor", est.color);
-  $("estado").textContent = textoEstado();
-  $("jugadas").textContent = g.pgn().replace(/^\[.*\]\s*$/gm, "").trim() || "(sin jugadas)";
-  $("btnDeshacer").disabled = g.history().length === 0;
+  $("estado").textContent = viendo ? `Viendo la jugada ${est.verIdx} de ${total}. Toca ⏭ para volver a la partida.` : textoEstado();
+  $("jugadas").textContent = sanEs(est.juego.pgn().replace(/^\[.*\]\s*$/gm, "").trim()) || "(sin jugadas)";
+  $("btnDeshacer").disabled = total === 0 || viendo;
+  $("btnJInicio").disabled = $("btnJAtras").disabled = (est.verIdx ?? total) === 0;
+  $("btnJAdelante").disabled = $("btnJFinal").disabled = !viendo;
 }
 function textoEstado() {
   const g = est.juego;
@@ -587,6 +667,7 @@ function textoEstado() {
   return jaque + (g.turn() === est.color ? "Te toca." : "Le toca a Stockfish.");
 }
 function tocarCasilla(sq) {
+  if (est.verIdx != null) { $("estado").textContent = "Estás repasando jugadas: toca ⏭ para volver y seguir jugando."; return; }
   const g = est.juego;
   if (g.game_over() || est.pensando || g.turn() !== est.color) return;
   const pieza = g.get(sq);
@@ -636,6 +717,7 @@ async function turnoMotorSiToca() {
     if (mv) { est.ultima = mv; guardarPartida(); }
   }
   dibujarJuego();
+  if ($("chkSiempre").checked) mostrarPista();
 }
 function actualizarEval(cp, mate, suf = "") {
   let pct = 50, txt = "";
@@ -648,21 +730,24 @@ function actualizarEval(cp, mate, suf = "") {
   $("evalBlanco" + suf).style.height = pct + "%";
   $("evalTexto" + suf).textContent = txt;
 }
-$("btnPista").onclick = async () => {
+$("chkSiempre").checked = leer("siempre", true);
+$("chkSiempre").onchange = () => { guardar("siempre", $("chkSiempre").checked); if ($("chkSiempre").checked) mostrarPista(); };
+$("btnPista").onclick = () => mostrarPista();
+async function mostrarPista() {
   const g = est.juego;
-  if (g.game_over() || est.pensando || g.turn() !== est.color) return;
+  if (!g || g.game_over() || est.pensando || g.turn() !== est.color) return;
   const gen = est.generacion;
   $("btnPista").disabled = true; $("estado").textContent = "Buscando la mejor jugada…";
-  const r = await obtenerMotor().buscar(g.fen(), NIVELES[8]);
+  const r = await obtenerMotor().buscar(g.fen(), { skill: 20, depth: 20, ms: 3000 });
   $("btnPista").disabled = false;
   if (gen !== est.generacion) return;
   est.pista = r.mejor; actualizarEval(r.cp, r.mate);
   dibujarJuego();
   if (r.mejor) {
     const san = new Chess(g.fen()).move({ from: r.mejor.slice(0, 2), to: r.mejor.slice(2, 4), promotion: r.mejor[4] || "q" });
-    $("estado").textContent = `💡 Stockfish sugiere ${san ? san.san : r.mejor}.`;
+    $("estado").textContent = san ? `💡 Mejor jugada: ${sanEs(san.san)} (${describirJugada(san)})` : `💡 Mejor jugada: ${r.mejor}`;
   }
-};
+}
 $("btnDeshacer").onclick = () => {
   const g = est.juego;
   est.generacion++; est.pensando = false; est.pista = null; est.sel = null;
@@ -670,7 +755,7 @@ $("btnDeshacer").onclick = () => {
   if (g.turn() !== est.color && g.history().length) g.undo(); // deshace también la respuesta del motor
   const h = g.history({ verbose: true }); est.ultima = h.length ? h[h.length - 1] : null;
   guardarPartida(); dibujarJuego();
-  turnoMotorSiToca();
+  if (g.turn() === est.color) { if ($("chkSiempre").checked) mostrarPista(); } else turnoMotorSiToca();
 };
 $("btnGirar").onclick = () => { est.girado = !est.girado; dibujarJuego(); };
 $("segColor").onclick = (e) => {

@@ -87,6 +87,15 @@ details summary { cursor: pointer; color: var(--suave); }
 .segmentado button { border: 0; border-radius: 0; padding: 8px 12px; }
 .segmentado button.activa { background: var(--acento); color: var(--acento-texto); }
 
+.origen { background: var(--fondo); border-radius: 10px; padding: 8px 12px; margin-bottom: 10px; font-weight: 600; }
+.origen small { display: block; font-weight: 400; color: var(--suave); }
+.mejor { border: 2px solid var(--borde); border-radius: 14px; padding: 12px 14px; margin-top: 4px; }
+.mejor.firme { border-color: var(--acento); }
+.mejor .et { font-size: .9rem; color: var(--suave); }
+.mejor .san { font-size: 2rem; font-weight: 800; line-height: 1.2; margin: 2px 0; }
+.mejor .desc { font-size: 1rem; }
+.mejor .conf { font-size: .85rem; color: var(--suave); margin-top: 4px; }
+.mejor.firme .conf { color: var(--acento); font-weight: 600; }
 .lineas { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
 .linea { display: flex; gap: 10px; align-items: baseline; text-align: left; width: 100%; min-width: 0; overflow: hidden; padding: 8px 10px; }
 .linea .ev { font-weight: 700; min-width: 3.6em; font-variant-numeric: tabular-nums; }
@@ -174,6 +183,7 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
   <!-- ANALIZAR -->
   <section id="vAnalisis" hidden>
     <div class="tarjeta">
+      <div class="origen" id="origenAnalisis"></div>
       <div class="fila" style="justify-content:space-between">
         <b id="anTurno"></b>
         <span class="suave" id="anProfundidad"></span>
@@ -183,6 +193,8 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
         <div class="tablero" id="tabAnalisis"></div>
       </div>
       <div class="estado" id="evalTextoAn"></div>
+      <div class="mejor" id="anMejor"></div>
+      <div class="suave" style="margin:10px 0 4px">Las 3 mejores líneas (toca una para jugarla):</div>
       <div id="anLineas" class="lineas"></div>
       <p class="suave" style="margin:6px 0">Toca una línea para hacer su jugada, o mueve tú las piezas (de cualquier bando) para probar ideas.</p>
       <div class="fila" style="margin:8px 0">
@@ -210,6 +222,7 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
   <!-- JUGAR -->
   <section id="vJugar" hidden>
     <div class="tarjeta">
+      <div class="origen" id="origenJuego"></div>
       <div class="fila" style="justify-content:space-between">
         <div class="segmentado" id="segColor">
           <button data-v="w">Juego con blancas</button><button data-v="b">con negras</button>
@@ -226,9 +239,18 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
         <div class="tablero" id="tabJuego"></div>
       </div>
       <div class="estado" id="estado"></div>
+      <label class="suave" style="display:flex;gap:8px;align-items:center;margin:4px 0">
+        <input type="checkbox" id="chkSiempre"> Mostrarme siempre la mejor jugada en mi turno
+      </label>
       <div class="suave" id="evalTexto"></div>
       <div class="fila" style="margin:8px 0">
-        <button id="btnPista">💡 Pista</button>
+        <button id="btnJInicio" aria-label="Al inicio">⏮</button>
+        <button id="btnJAtras" aria-label="Jugada anterior">◀</button>
+        <button id="btnJAdelante" aria-label="Jugada siguiente">▶</button>
+        <button id="btnJFinal" aria-label="Última jugada">⏭</button>
+      </div>
+      <div class="fila" style="margin:8px 0">
+        <button id="btnPista">💡 Mejor jugada</button>
         <button id="btnDeshacer">↩️ Deshacer</button>
         <button id="btnGirar">🔄 Girar</button>
       </div>

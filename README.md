@@ -44,7 +44,8 @@ Si cambias archivos, sube el número de `VERSION` en `sw.js` para que los celula
 
 ## Qué hay adentro
 - `index.html`, `app.js`: la app (sin compilación).
-- `vendor/stockfish.js`: Stockfish 10 (GPLv3, ver `vendor/STOCKFISH-LICENCIA.txt`).
+- `vendor/stockfish-19-lite-single.*`: Stockfish 19 (red neuronal ligera, WASM de un hilo; GPLv3, ver
+  `vendor/STOCKFISH-LICENCIA.txt`). El análisis también consulta la base de análisis en la nube de Lichess.
 - `vendor/chess.js`: reglas del ajedrez (licencia BSD).
 - `vendor/anthropic.js`: SDK oficial de Anthropic para JavaScript, empaquetado para el navegador.
 - Reconocimiento: modelo `claude-opus-5-5` con salida estructurada (8 filas → FEN) y
