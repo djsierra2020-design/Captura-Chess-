@@ -87,6 +87,11 @@ details summary { cursor: pointer; color: var(--suave); }
 .segmentado button { border: 0; border-radius: 0; padding: 8px 12px; }
 .segmentado button.activa { background: var(--acento); color: var(--acento-texto); }
 
+.lineas { display: grid; gap: 6px; grid-template-columns: minmax(0, 1fr); }
+.linea { display: flex; gap: 10px; align-items: baseline; text-align: left; width: 100%; min-width: 0; overflow: hidden; padding: 8px 10px; }
+.linea .ev { font-weight: 700; min-width: 3.6em; font-variant-numeric: tabular-nums; }
+.linea .pv { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, monospace; font-size: .88rem; color: var(--suave); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.linea:first-child { border-color: var(--acento); }
 .estado { font-weight: 600; min-height: 1.4em; margin: 6px 0; }
 .jugadas { font-family: ui-monospace, Menlo, monospace; font-size: .9rem; color: var(--suave); max-height: 6.5em; overflow-y: auto; word-break: break-word; }
 
@@ -112,7 +117,7 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
   <!-- INICIO -->
   <section id="vInicio">
     <div class="tarjeta">
-      <p style="margin-top:0">Toma una foto de un tablero (real o en pantalla). La app reconoce la posición, la corriges si hace falta y sigues jugando contra <b>Stockfish</b>.</p>
+      <p style="margin-top:0">Toma una foto de un tablero (real o en pantalla). La app reconoce la posición y <b>Stockfish</b> la analiza: quién va ganando y las mejores jugadas. También puedes seguir jugando contra él.</p>
       <button class="principal grande" id="btnCamara">📷 Tomar foto</button>
       <button class="grande" id="btnGaleria">🖼️ Elegir foto o captura</button>
       <div class="fila">
@@ -121,7 +126,7 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
       </div>
       <button class="grande" id="btnPegarFen" style="margin-top:10px">📋 Pegar FEN (de Claude u otra app)</button>
       <button class="grande" id="btnContinuar" style="margin-top:10px" hidden>▶️ Continuar partida guardada</button>
-      <div class="aviso" id="avisoClave" hidden>Para el reconocimiento automático pon tu clave de Claude en <a href="#" id="lnkAjustes">Ajustes ⚙️</a>. Sin clave puedes usar la foto como guía y armar la posición a mano.</div>
+      <div class="aviso" id="avisoClave" hidden>El reconocimiento automático de fotos necesita una clave de la API de Claude (<a href="#" id="lnkAjustes">Ajustes ⚙️</a>). Con <b>Claude Pro</b> usa <b>📋 Pegar FEN</b>: le mandas la foto al chat de Claude y pegas su respuesta aquí.</div>
     </div>
     <input type="file" id="inCamara" accept="image/*" capture="environment" hidden>
     <input type="file" id="inGaleria" accept="image/*" hidden>
@@ -160,8 +165,45 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
         <button id="btnPosInicial">Inicial</button>
       </div>
       <div class="aviso error" id="errEditor" hidden></div>
-      <button class="principal grande" id="btnJugarDesde">Jugar desde esta posición ▶️</button>
+      <button class="principal grande" id="btnAnalizarDesde">🔍 Analizar esta posición</button>
+      <button class="grande" id="btnJugarDesde">▶️ Jugar contra Stockfish</button>
       <button id="btnVolverInicio" style="width:100%">← Volver</button>
+    </div>
+  </section>
+
+  <!-- ANALIZAR -->
+  <section id="vAnalisis" hidden>
+    <div class="tarjeta">
+      <div class="fila" style="justify-content:space-between">
+        <b id="anTurno"></b>
+        <span class="suave" id="anProfundidad"></span>
+      </div>
+      <div class="tablero-envoltura">
+        <div class="evalbar" id="evalbarAn" title="Ventaja"><div class="blanco" id="evalBlancoAn"></div></div>
+        <div class="tablero" id="tabAnalisis"></div>
+      </div>
+      <div class="estado" id="evalTextoAn"></div>
+      <div id="anLineas" class="lineas"></div>
+      <p class="suave" style="margin:6px 0">Toca una línea para hacer su jugada, o mueve tú las piezas (de cualquier bando) para probar ideas.</p>
+      <div class="fila" style="margin:8px 0">
+        <button id="btnAnInicio" aria-label="Al inicio">⏮</button>
+        <button id="btnAnAtras" aria-label="Atrás">◀</button>
+        <button id="btnAnAdelante" aria-label="Adelante">▶</button>
+        <button id="btnAnGirar">🔄 Girar</button>
+      </div>
+      <div class="fila" style="margin-bottom:8px">
+        <button id="btnAnJugar">▶️ Jugar desde aquí</button>
+        <button id="btnAnEditar">✏️ Editar</button>
+      </div>
+      <div class="fila" style="margin-bottom:8px">
+        <button id="btnAnFoto">📷 Nueva foto</button>
+        <button id="btnAnLichess">Abrir en Lichess ↗</button>
+      </div>
+      <details>
+        <summary>Jugadas y posición (FEN)</summary>
+        <div class="jugadas" id="anJugadas" style="margin:8px 0"></div>
+        <div class="fila"><button id="btnAnCopiarFen">Copiar FEN</button></div>
+      </details>
     </div>
   </section>
 
@@ -191,6 +233,7 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
         <button id="btnGirar">🔄 Girar</button>
       </div>
       <div class="fila" style="margin-bottom:8px">
+        <button id="btnAnalizarJuego">🔍 Analizar</button>
         <button id="btnEditar">✏️ Editar posición</button>
         <button id="btnNuevaFoto">📷 Nueva foto</button>
       </div>
@@ -229,6 +272,16 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
     <button id="btnCancelarFen">Cancelar</button>
     <button class="principal" id="btnUsarFen">Usar</button>
   </div>
+</dialog>
+
+<dialog id="dlgSinClave">
+  <h2>¿Cómo leemos la foto?</h2>
+  <p class="suave" style="margin-top:0">La app no tiene clave de la API de Claude, así que no puede leer la foto sola. Elige:</p>
+  <button class="principal grande" id="btnSkPegar">📋 Con mi Claude Pro (pegar FEN)</button>
+  <p class="suave" style="margin:-4px 0 10px">Le mandas la foto al chat de Claude, copias su respuesta y la pegas.</p>
+  <button class="grande" id="btnSkManual">✏️ Armar la posición a mano</button>
+  <button class="grande" id="btnSkClave">🔑 Poner clave de la API</button>
+  <button id="btnSkCancelar" style="width:100%">Cancelar</button>
 </dialog>
 
 <dialog id="dlgPromo">

@@ -7,7 +7,11 @@ La app reconoce la posición, te deja corregirla y sigues jugando contra **Stock
 1. **📷 Tomar foto** (o **🖼️ Elegir foto o captura**).
 2. Claude lee la posición. Revisa el tablero: toca una pieza de la paleta y luego la casilla para
    corregir; 🗑️ borra. Elige **a quién le toca**.
-3. **Jugar desde esta posición**: eliges con qué color juegas y el nivel (1 a 8).
+3. **🔍 Analizar esta posición**: Stockfish a máxima fuerza muestra la evaluación (barra de ventaja),
+   la mejor jugada marcada en el tablero y las 3 mejores líneas. Toca una línea para hacer su jugada o
+   mueve piezas de cualquier bando para probar ideas; ◀ ▶ para ir y volver. «Abrir en Lichess» lleva
+   la posición al análisis de Lichess.
+4. **▶️ Jugar contra Stockfish**: eliges con qué color juegas y el nivel (1 a 8).
    Tienes 💡 Pista (mejor jugada), ↩️ Deshacer, barra de ventaja y copiar FEN/PGN.
 
 La partida se guarda en el celular; con **Continuar partida guardada** la retomas.

@@ -16,7 +16,7 @@ function fenAMatriz(fen) {
   return fen.split(" ")[0].split("/").map((fila) =>
     [...fila].flatMap((c) => (/\d/.test(c) ? Array(+c).fill(null) : [c])));
 }
-function matrizAFen(m, turno) {
+function matrizAFen(m, turno, contadores = "0 1") {
   const piezas = m.map((fila) => {
     let s = "", v = 0;
     for (const c of fila) { if (c) { if (v) { s += v; v = 0; } s += c; } else v++; }
@@ -25,7 +25,7 @@ function matrizAFen(m, turno) {
   let enr = "";
   if (m[7][4] === "K") { if (m[7][7] === "R") enr += "K"; if (m[7][0] === "R") enr += "Q"; }
   if (m[0][4] === "k") { if (m[0][7] === "r") enr += "k"; if (m[0][0] === "r") enr += "q"; }
-  return `${piezas} ${turno} ${enr || "-"} - 0 1`;
+  return `${piezas} ${turno} ${enr || "-"} - ${contadores}`;
 }
 const nombreCasilla = (f, c) => "abcdefgh"[c] + (8 - f);
 
@@ -69,8 +69,11 @@ function dibujarTablero(el, matriz, { girado = false, clases = {}, alTocar } = {
 }
 
 // ---------- vistas ----------
-const VISTAS = ["vInicio", "vCargando", "vEditor", "vJugar"];
-function mostrar(v) { VISTAS.forEach((x) => ($(x).hidden = x !== v)); window.scrollTo(0, 0); }
+const VISTAS = ["vInicio", "vCargando", "vEditor", "vJugar", "vAnalisis"];
+function mostrar(v) {
+  if (v !== "vAnalisis") detenerAnalisis();
+  VISTAS.forEach((x) => ($(x).hidden = x !== v)); window.scrollTo(0, 0);
+}
 
 // ---------- motor Stockfish (Web Worker) ----------
 const NIVELES = { // como los niveles 1-8 de Lichess, aproximado
@@ -107,6 +110,7 @@ class Motor {
         }
       };
       this.w.postMessage(`setoption name Skill Level value ${skill}`);
+      this.w.postMessage("setoption name MultiPV value 1");
       this.w.postMessage("ucinewgame");
       this.w.postMessage(`position fen ${fen}`);
       this.w.postMessage(`go depth ${depth} movetime ${ms}`);
@@ -114,6 +118,36 @@ class Motor {
     const p = this.cola.then(tarea);
     this.cola = p.catch(() => {});
     return p;
+  }
+  /** Análisis a máxima fuerza con las 3 mejores líneas. alInfo recibe {n, depth, cp, mate, pv}
+   *  (evaluación desde el lado de las blancas). Devuelve {detener}. */
+  analizar(fen, alInfo, alTerminar) {
+    let detenido = false, enCurso = false;
+    const tarea = () => new Promise((ok) => {
+      if (detenido) return ok();
+      enCurso = true;
+      const blancas = fen.split(" ")[1] === "w";
+      this.oyente = (l) => {
+        if (l.startsWith("info") && l.includes(" pv ") && !/bound/.test(l)) {
+          const s = l.match(/score (cp|mate) (-?\d+)/);
+          if (!s) return;
+          const n = +(l.match(/ multipv (\d+)/)?.[1] || 1), depth = +(l.match(/ depth (\d+)/)?.[1] || 0);
+          const v = +s[2] * (blancas ? 1 : -1);
+          alInfo({ n, depth, cp: s[1] === "cp" ? v : null, mate: s[1] === "mate" ? v : null,
+                   pv: l.split(" pv ")[1].trim().split(/\s+/) });
+        } else if (l.startsWith("bestmove")) {
+          enCurso = false; ok();
+          if (!detenido && alTerminar) alTerminar();
+        }
+      };
+      this.w.postMessage("setoption name Skill Level value 20");
+      this.w.postMessage("setoption name MultiPV value 3");
+      this.w.postMessage(`position fen ${fen}`);
+      this.w.postMessage("go depth 22");
+    });
+    const p = this.cola.then(tarea);
+    this.cola = p.catch(() => {});
+    return { detener: () => { detenido = true; if (enCurso) this.w.postMessage("stop"); } };
   }
 }
 let motor = null;
@@ -287,10 +321,7 @@ async function procesarFoto(archivo) {
   try { dataUrl = await reducirImagen(archivo); } catch (e) { alert(e.message); return; }
   est.foto = dataUrl;
   const clave = leer("clave", "");
-  if (!clave) {
-    abrirEditor(INICIAL, { notas: "Sin clave de Claude configurada: coloca las piezas mirando la foto (o pon la clave en Ajustes ⚙️)." });
-    return;
-  }
+  if (!clave) { $("dlgSinClave").showModal(); return; }
   $("fotoCargando").src = dataUrl;
   mostrar("vCargando");
   try {
@@ -305,6 +336,10 @@ async function procesarFoto(archivo) {
     abrirEditor(INICIAL, { notas: mensajeError(e) + " Puedes armar la posición a mano.", esError: true });
   }
 }
+$("btnSkPegar").onclick = () => { $("dlgSinClave").close(); abrirPegarFen(); };
+$("btnSkManual").onclick = () => { $("dlgSinClave").close(); abrirEditor(INICIAL, { notas: "Coloca las piezas mirando la foto (Vaciar deja el tablero en blanco)." }); };
+$("btnSkClave").onclick = () => { $("dlgSinClave").close(); abrirAjustes(); };
+$("btnSkCancelar").onclick = () => $("dlgSinClave").close();
 $("btnCancelarRec").onclick = () => { controlRec?.abort(); abrirEditor(INICIAL); };
 
 // ---------- editor ----------
@@ -312,6 +347,7 @@ function abrirEditor(fen, { notas = "", esError = false, sinFoto = false, pregun
   if (sinFoto) est.foto = null;
   est.ed.m = fenAMatriz(fen);
   est.ed.turno = fen.split(" ")[1] || "w";
+  est.ed.contadores = fen.split(" ").slice(4, 6).join(" ") || "0 1";
   $("detFoto").hidden = !est.foto;
   if (est.foto) $("fotoEditor").src = est.foto;
   $("notasRec").hidden = !notas;
@@ -353,13 +389,153 @@ $("btnGirarEd").onclick = () => { est.ed.girado = !est.ed.girado; dibujarEditor(
 $("btnVaciar").onclick = () => { est.ed.m = fenAMatriz("8/8/8/8/8/8/8/8 w - - 0 1"); dibujarEditor(); };
 $("btnPosInicial").onclick = () => { est.ed.m = fenAMatriz(INICIAL); est.ed.turno = "w"; dibujarEditor(); };
 $("btnVolverInicio").onclick = () => { actualizarInicio(); mostrar("vInicio"); };
-$("btnJugarDesde").onclick = () => {
-  const fen = matrizAFen(est.ed.m, est.ed.turno);
+function fenDelEditor() {
+  const fen = matrizAFen(est.ed.m, est.ed.turno, est.ed.contadores);
   const p = problemaPosicion(fen);
-  if (p) { $("errEditor").textContent = p; $("errEditor").hidden = false; return; }
+  if (p) { $("errEditor").textContent = p; $("errEditor").hidden = false; return null; }
+  return fen;
+}
+$("btnJugarDesde").onclick = () => {
+  const fen = fenDelEditor(); if (!fen) return;
   est.color = est.ed.turno; // por defecto juegas con el bando al que le toca
   empezarJuego(fen);
 };
+$("btnAnalizarDesde").onclick = () => { const fen = fenDelEditor(); if (fen) abrirAnalisis(fen); };
+
+// ---------- análisis ----------
+const an = { juego: null, futuro: [], lineas: [], ctrl: null, sel: null, girado: false, ultima: null, profundidad: 0, listo: false, dibujoPendiente: false };
+
+function abrirAnalisis(fen) {
+  an.juego = new Chess(fen); an.futuro = []; an.sel = null; an.ultima = null;
+  an.girado = fen.split(" ")[1] === "b";
+  mostrar("vAnalisis");
+  reanalizar();
+}
+function detenerAnalisis() { if (an.ctrl) { an.ctrl.detener(); an.ctrl = null; } }
+function reanalizar() {
+  detenerAnalisis();
+  an.lineas = []; an.profundidad = 0; an.listo = false;
+  dibujarAnalisis();
+  if (an.juego.game_over()) return;
+  const fen = an.juego.fen();
+  an.ctrl = obtenerMotor().analizar(fen, (i) => {
+    if (an.juego.fen() !== fen) return;
+    an.lineas[i.n - 1] = i;
+    if (i.n === 1) an.profundidad = i.depth;
+    programarDibujo();
+  }, () => { if (an.juego.fen() === fen) { an.listo = true; programarDibujo(); } });
+}
+function programarDibujo() {
+  if (an.dibujoPendiente) return;
+  an.dibujoPendiente = true;
+  requestAnimationFrame(() => { an.dibujoPendiente = false; dibujarAnalisis(); });
+}
+function textoEval(cp, mate) {
+  if (mate != null) return (mate > 0 ? "+" : "−") + "M" + Math.abs(mate);
+  if (cp == null) return "…";
+  return (cp > 0 ? "+" : cp < 0 ? "−" : "") + (Math.abs(cp) / 100).toFixed(1);
+}
+function pvASan(fen, pv, max = 10) {
+  const c = new Chess(fen), partes = [];
+  let num = +fen.split(" ")[5] || 1, primero = true;
+  for (const u of pv.slice(0, max)) {
+    const blancas = c.turn() === "w";
+    const m = c.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
+    if (!m) break;
+    if (blancas) partes.push(`${num}. ${m.san}`);
+    else { partes.push(primero ? `${num}… ${m.san}` : m.san); num++; }
+    primero = false;
+  }
+  return partes.join(" ");
+}
+function textoFinDePartida(g) {
+  if (g.in_checkmate()) return `Jaque mate: ganan las ${g.turn() === "w" ? "negras" : "blancas"}.`;
+  if (g.in_stalemate()) return "Tablas por ahogado.";
+  if (g.insufficient_material()) return "Tablas: material insuficiente.";
+  if (g.in_draw()) return "Tablas.";
+  return null;
+}
+function dibujarAnalisis() {
+  const g = an.juego, fen = g.fen(), clases = {};
+  if (an.ultima) { clases[an.ultima.from] = "ultima"; clases[an.ultima.to] = "ultima"; }
+  const mejor = an.lineas[0]?.pv?.[0];
+  if (mejor) { clases[mejor.slice(0, 2)] = "pista"; clases[mejor.slice(2, 4)] = "pista"; }
+  if (g.in_check()) {
+    fenAMatriz(fen).forEach((fila, f) => fila.forEach((p, c) => {
+      if (p === (g.turn() === "w" ? "K" : "k")) { const sq = nombreCasilla(f, c); clases[sq] = (clases[sq] || "") + " jaque"; }
+    }));
+  }
+  if (an.sel) {
+    clases[an.sel] = (clases[an.sel] || "") + " sel";
+    for (const mv of g.moves({ square: an.sel, verbose: true })) clases[mv.to] = (clases[mv.to] || "") + " destino";
+  }
+  dibujarTablero($("tabAnalisis"), fenAMatriz(fen), { girado: an.girado, clases, alTocar: tocarAnalisis });
+  $("evalbarAn").classList.toggle("girada", an.girado);
+  $("anTurno").textContent = `Juegan las ${g.turn() === "w" ? "blancas" : "negras"}`;
+  const fin = textoFinDePartida(g);
+  $("anProfundidad").textContent = fin ? "" : an.profundidad ? `Profundidad ${an.profundidad}${an.listo ? " ✓" : " · analizando…"}` : "Analizando…";
+  const l1 = an.lineas[0];
+  if (fin) {
+    if (g.in_checkmate()) actualizarEval(null, g.turn() === "w" ? -1 : 1, "An"); else actualizarEval(0, null, "An");
+    $("evalTextoAn").textContent = fin;
+  }
+  else if (l1) {
+    actualizarEval(l1.cp, l1.mate, "An");
+    const sanMejor = pvASan(fen, l1.pv, 1).replace(/^\d+\.(…)?\s*/, "");
+    $("evalTextoAn").textContent += ` · Mejor jugada: ${sanMejor}`;
+  } else { actualizarEval(null, null, "An"); $("evalTextoAn").textContent = "Stockfish está calculando…"; }
+  const cont = $("anLineas"); cont.innerHTML = "";
+  an.lineas.forEach((l) => {
+    if (!l) return;
+    const b = document.createElement("button");
+    b.className = "linea";
+    b.innerHTML = `<span class="ev"></span><span class="pv"></span>`;
+    b.querySelector(".ev").textContent = textoEval(l.cp, l.mate);
+    b.querySelector(".pv").textContent = pvASan(fen, l.pv);
+    b.onclick = () => jugarAnalisis({ from: l.pv[0].slice(0, 2), to: l.pv[0].slice(2, 4), promotion: l.pv[0][4] });
+    cont.appendChild(b);
+  });
+  $("anJugadas").textContent = g.pgn().replace(/^\[.*\]\s*$/gm, "").trim() || "(sin jugadas)";
+  $("btnAnAtras").disabled = $("btnAnInicio").disabled = g.history().length === 0;
+  $("btnAnAdelante").disabled = an.futuro.length === 0;
+}
+function tocarAnalisis(sq) {
+  const g = an.juego;
+  if (g.game_over()) return;
+  if (an.sel) {
+    const mv = g.moves({ square: an.sel, verbose: true }).filter((m) => m.to === sq);
+    if (mv.length) {
+      if (mv.some((m) => m.promotion)) elegirPromocion(g.turn()).then((pr) => pr && jugarAnalisis({ from: an.sel, to: sq, promotion: pr }));
+      else jugarAnalisis({ from: an.sel, to: sq });
+      return;
+    }
+  }
+  const p = g.get(sq);
+  an.sel = p && p.color === g.turn() ? sq : null;
+  dibujarAnalisis();
+}
+function jugarAnalisis(m, { conservarFuturo = false } = {}) {
+  const r = an.juego.move(m);
+  if (!r) return;
+  if (!conservarFuturo) an.futuro = [];
+  an.ultima = r; an.sel = null;
+  reanalizar();
+}
+function retrocederAnalisis() {
+  const m = an.juego.undo(); if (!m) return false;
+  an.futuro.push(m);
+  const h = an.juego.history({ verbose: true }); an.ultima = h[h.length - 1] || null; an.sel = null;
+  return true;
+}
+$("btnAnAtras").onclick = () => { if (retrocederAnalisis()) reanalizar(); };
+$("btnAnInicio").onclick = () => { let x = false; while (retrocederAnalisis()) x = true; if (x) reanalizar(); };
+$("btnAnAdelante").onclick = () => { const m = an.futuro.pop(); if (m) jugarAnalisis({ from: m.from, to: m.to, promotion: m.promotion }, { conservarFuturo: true }); };
+$("btnAnGirar").onclick = () => { an.girado = !an.girado; dibujarAnalisis(); };
+$("btnAnEditar").onclick = () => abrirEditor(an.juego.fen());
+$("btnAnFoto").onclick = () => $("inCamara").click();
+$("btnAnJugar").onclick = () => { const fen = an.juego.fen(); est.color = fen.split(" ")[1]; empezarJuego(fen); };
+$("btnAnLichess").onclick = () => window.open("https://lichess.org/analysis/standard/" + an.juego.fen().replace(/ /g, "_"), "_blank", "noopener");
+$("btnAnCopiarFen").onclick = (e) => copiar(an.juego.fen(), e.target);
 
 // ---------- juego ----------
 function empezarJuego(fen, jugadas = []) {
@@ -461,7 +637,7 @@ async function turnoMotorSiToca() {
   }
   dibujarJuego();
 }
-function actualizarEval(cp, mate) {
+function actualizarEval(cp, mate, suf = "") {
   let pct = 50, txt = "";
   if (mate != null) { pct = mate > 0 ? 100 : 0; txt = `Mate en ${Math.abs(mate)} para las ${mate > 0 ? "blancas" : "negras"}`; }
   else if (cp != null) {
@@ -469,8 +645,8 @@ function actualizarEval(cp, mate) {
     const v = (cp / 100).toFixed(1);
     txt = `Evaluación: ${cp > 0 ? "+" : ""}${v} ${Math.abs(cp) < 30 ? "(igualado)" : cp > 0 ? "(mejor blancas)" : "(mejor negras)"}`;
   }
-  $("evalBlanco").style.height = pct + "%";
-  $("evalTexto").textContent = txt;
+  $("evalBlanco" + suf).style.height = pct + "%";
+  $("evalTexto" + suf).textContent = txt;
 }
 $("btnPista").onclick = async () => {
   const g = est.juego;
@@ -503,6 +679,7 @@ $("segColor").onclick = (e) => {
   guardarPartida(); dibujarJuego(); turnoMotorSiToca();
 };
 $("selNivel").onchange = () => { est.nivel = +$("selNivel").value; guardar("nivel", est.nivel); };
+$("btnAnalizarJuego").onclick = () => { est.generacion++; est.pensando = false; abrirAnalisis(est.juego.fen()); };
 $("btnEditar").onclick = () => { est.generacion++; est.pensando = false; abrirEditor(est.juego.fen()); };
 $("btnNuevaFoto").onclick = () => { est.generacion++; est.pensando = false; $("inCamara").click(); };
 async function copiar(t, boton) {
