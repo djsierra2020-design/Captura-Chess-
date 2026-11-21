@@ -370,8 +370,8 @@ async function procesarFoto(archivo) {
   const clave = leer("clave", "");
   if (!clave) { $("dlgSinClave").showModal(); return; }
   const modo = leer("modelo", "auto");
-  // «auto»: primero Haiku (casi gratis); si falla o la posición sale imposible, Opus.
-  const intentos = modo === "auto" ? ["haiku", "opus"] : [MODELOS[modo] ? modo : "haiku"];
+  // «auto»: primero Haiku (casi gratis); si falla o la posición sale imposible, Sonnet.
+  const intentos = modo === "auto" ? ["haiku", "sonnet"] : [MODELOS[modo] ? modo : "haiku"];
   $("fotoCargando").src = dataUrl;
   mostrar("vCargando");
   let ultimo = null, ultimoError = null;
