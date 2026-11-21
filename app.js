@@ -139,6 +139,49 @@ $("btnGaleria").onclick = () => $("inGaleria").click();
 $("inCamara").onchange = $("inGaleria").onchange = (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) procesarFoto(f); };
 $("btnManual").onclick = () => abrirEditor(INICIAL, { sinFoto: true });
 $("btnInicial").onclick = () => empezarJuego(INICIAL);
+
+// ---------- pegar FEN ----------
+const PEDIDO_CLAUDE = `Mira la foto de este tablero de ajedrez y dame la posición en notación FEN, \
+vista desde las blancas (fila 8 primero). Revisa casilla por casilla. Si no se sabe a quién le toca, \
+pon "w". Responde solo con el FEN en una línea.`;
+
+/** Busca un FEN dentro de cualquier texto (p. ej. la respuesta completa de Claude). */
+function extraerFen(texto) {
+  const limpio = String(texto || "").replace(/[`*]/g, " ");
+  const re = /((?:[pnbrqkPNBRQK1-8]{1,8}\/){7}[pnbrqkPNBRQK1-8]{1,8})(?:\s+([wb])(?:\s+([KQkq]{1,4}|-))?(?:\s+([a-h][36]|-))?(?:\s+(\d+))?(?:\s+(\d+))?)?/;
+  const m = limpio.match(re);
+  if (!m) return { error: "No encontré un FEN en el texto. Debe verse así: rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1" };
+  const filas = m[1].split("/");
+  for (const [i, f] of filas.entries()) {
+    const n = [...f].reduce((s, c) => s + (/\d/.test(c) ? +c : 1), 0);
+    if (n !== 8) return { error: `La fila ${8 - i} del FEN no tiene 8 casillas (${f}). Revisa el texto o corrígelo en el editor.` };
+  }
+  const turno = m[2] || "w";
+  const fen = `${m[1]} ${turno} ${m[3] || "-"} ${m[4] || "-"} ${m[5] || 0} ${m[6] || 1}`;
+  return { fen, turnoConocido: !!m[2] };
+}
+function abrirPegarFen() {
+  $("inFen").value = ""; $("errFen").hidden = true;
+  $("dlgFen").showModal();
+}
+$("btnPegarFen").onclick = () => { est.foto = null; abrirPegarFen(); };
+$("btnFenEd").onclick = abrirPegarFen;
+$("btnCancelarFen").onclick = () => $("dlgFen").close();
+$("btnCopiarPedido").onclick = (e) => copiar(PEDIDO_CLAUDE, e.target);
+$("btnLeerPortapapeles").onclick = async () => {
+  try { $("inFen").value = await navigator.clipboard.readText(); }
+  catch { $("inFen").focus(); $("errFen").textContent = "No pude leer el portapapeles: mantén presionado el cuadro y elige «Pegar»."; $("errFen").hidden = false; }
+};
+$("btnUsarFen").onclick = () => {
+  const r = extraerFen($("inFen").value);
+  if (r.error) { $("errFen").textContent = r.error; $("errFen").hidden = false; return; }
+  $("dlgFen").close();
+  abrirEditor(r.fen, {
+    notas: r.turnoConocido ? "Posición cargada del FEN. Revísala con la foto antes de jugar."
+                           : "El FEN no dice a quién le toca: elígelo abajo.",
+    preguntarTurno: !r.turnoConocido,
+  });
+};
 $("btnContinuar").onclick = () => {
   const p = leer("partida", null); if (!p) return;
   est.color = p.color; empezarJuego(p.inicio, p.jugadas);

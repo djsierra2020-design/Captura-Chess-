@@ -1,6 +1,6 @@
 // Guarda la app para que funcione sin internet (el reconocimiento de fotos sí necesita internet).
 // Cambia VERSION cada vez que publiques cambios para que los celulares descarguen lo nuevo.
-const VERSION = "captura-chess-v1";
+const VERSION = "captura-chess-v2";
 const ARCHIVOS = ["./", "index.html", "app.js", "manifest.webmanifest", "vendor/chess.js", "vendor/stockfish.js",
   "vendor/anthropic.js", "icons/icon-192.png", "icons/icon-512.png"];
 

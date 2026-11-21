@@ -12,6 +12,14 @@ La app reconoce la posición, te deja corregirla y sigues jugando contra **Stock
 
 La partida se guarda en el celular; con **Continuar partida guardada** la retomas.
 
+## Sin clave de API: usar Claude Pro con «📋 Pegar FEN»
+La suscripción Claude Pro no incluye la API, pero sirve igual:
+1. En la app toca **📋 Pegar FEN** → **📝 Copiar pedido para Claude**.
+2. En el chat de Claude adjunta la foto, pega el pedido y envía.
+3. Copia la respuesta de Claude, vuelve a la app, toca **📋 Pegar** y luego **Usar**
+   (puedes pegar la respuesta completa: la app encuentra el FEN dentro del texto).
+4. Revisa la posición en el editor y juega.
+
 ## Clave de Claude (para el reconocimiento automático)
 1. Entra a <https://console.anthropic.com>, carga saldo y crea una clave en **API Keys**.
 2. En la app: **⚙️ Ajustes** → pega la clave → **Guardar**.

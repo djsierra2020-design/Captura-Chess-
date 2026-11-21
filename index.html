@@ -119,6 +119,7 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
         <button id="btnManual">✏️ Armar posición a mano</button>
         <button id="btnInicial">♟ Partida nueva</button>
       </div>
+      <button class="grande" id="btnPegarFen" style="margin-top:10px">📋 Pegar FEN (de Claude u otra app)</button>
       <button class="grande" id="btnContinuar" style="margin-top:10px" hidden>▶️ Continuar partida guardada</button>
       <div class="aviso" id="avisoClave" hidden>Para el reconocimiento automático pon tu clave de Claude en <a href="#" id="lnkAjustes">Ajustes ⚙️</a>. Sin clave puedes usar la foto como guía y armar la posición a mano.</div>
     </div>
@@ -154,6 +155,7 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
       </div>
       <div class="fila" style="margin-bottom:8px">
         <button id="btnGirarEd">🔄 Girar</button>
+        <button id="btnFenEd">📋 FEN</button>
         <button id="btnVaciar">Vaciar</button>
         <button id="btnPosInicial">Inicial</button>
       </div>
@@ -210,6 +212,22 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
   <div class="fila" style="margin-top:12px">
     <button id="btnBorrarClave">Borrar clave</button>
     <button class="principal" id="btnGuardarClave">Guardar</button>
+  </div>
+</dialog>
+
+<dialog id="dlgFen">
+  <h2>Pegar FEN</h2>
+  <p class="suave" style="margin-top:0"><b>Con tu Claude Pro:</b> manda la foto al chat de Claude con el pedido de abajo, copia su respuesta y pégala aquí (puedes pegar la respuesta completa; la app encuentra el FEN).</p>
+  <div class="fila" style="margin-bottom:10px"><button id="btnCopiarPedido">📝 Copiar pedido para Claude</button></div>
+  <label for="inFen">FEN o respuesta de Claude</label>
+  <textarea id="inFen" rows="4" spellcheck="false" autocapitalize="off" autocomplete="off"
+    style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--borde);background:var(--fondo);color:var(--texto);font-family:ui-monospace,Menlo,monospace;font-size:.9rem"
+    placeholder="rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"></textarea>
+  <div class="aviso error" id="errFen" hidden></div>
+  <div class="fila" style="margin-top:12px">
+    <button id="btnLeerPortapapeles">📋 Pegar</button>
+    <button id="btnCancelarFen">Cancelar</button>
+    <button class="principal" id="btnUsarFen">Usar</button>
   </div>
 </dialog>
 
