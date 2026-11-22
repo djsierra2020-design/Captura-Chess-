@@ -1,0 +1,16 @@
+# Servidor compartido de Captura Chess (ver README.md en esta carpeta).
+name = "captura-chess"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+[vars]
+LIMITE_POR_PERSONA = "20"
+LIMITE_TOTAL = "300"
+
+[[durable_objects.bindings]]
+name = "LIMITES"
+class_name = "Limites"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Limites"]

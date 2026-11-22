@@ -1,0 +1,17 @@
+{
+  "name": "captura-chess-servidor",
+  "version": "1.0.0",
+  "description": "Servidor compartido de Captura Chess (Cloudflare Worker)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.12.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.166.0"
+  },
+  "private": true,
+  "type": "module"
+}

@@ -279,6 +279,7 @@ dialog input[type=password], dialog input[type=text] { width: 100%; padding: 10p
 <dialog id="dlgAjustes">
   <h2>Ajustes</h2>
   <p class="suave">El reconocimiento automático usa la visión de <b>Claude</b>. Crea una clave en <b>console.anthropic.com</b> → API Keys y pégala aquí. Se guarda solo en este celular. Cada foto se cobra en tu cuenta de Anthropic según el modelo elegido abajo.</p>
+  <p class="aviso" id="notaServidor" hidden>No necesitas clave: sin ella la app lee las fotos con el servicio compartido (Claude Haiku, con un límite de fotos por día). Pon una clave solo si quieres usar la tuya.</p>
   <label for="inClave">Clave de API de Claude</label>
   <input type="password" id="inClave" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
   <label for="selModelo" style="display:block;margin-top:14px">Modelo para leer las fotos</label>

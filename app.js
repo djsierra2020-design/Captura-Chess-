@@ -1,11 +1,15 @@
 // Captura Chess: foto -> posición (Claude) -> corregir -> jugar contra Stockfish (en el celular).
 import { Anthropic } from "./vendor/anthropic.js";
+import { INSTRUCCIONES, ESQUEMA } from "./lectura.js";
 
 const $ = (id) => document.getElementById(id);
 const INICIAL = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
 const GLIFO = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
 const VS = "︎"; // fuerza el glifo de texto (evita el peón emoji en Android)
 // Modelos para leer fotos. Haiku es el más barato; Opus el más preciso.
+// Servidor compartido (servidor/): lee fotos con Haiku para quien no tiene clave propia.
+// Se llena con la dirección del Worker de Cloudflare una vez publicado. Vacío = no hay servicio compartido.
+const SERVIDOR = "";
 const MODELOS = {
   haiku: { id: "claude-haiku-5-5", nombre: "Haiku", respaldo: false },
   sonnet: { id: "claude-sonnet-5-5", nombre: "Sonnet", respaldo: true },
@@ -171,7 +175,7 @@ const est = {
 
 // ---------- inicio ----------
 function actualizarInicio() {
-  $("avisoClave").hidden = !!leer("clave", "");
+  $("avisoClave").hidden = !!leer("clave", "") || !!SERVIDOR;
   $("btnContinuar").hidden = !leer("partida", null);
 }
 $("btnCamara").onclick = () => $("inCamara").click();
@@ -229,7 +233,7 @@ $("btnContinuar").onclick = () => {
 $("lnkAjustes").onclick = (e) => { e.preventDefault(); abrirAjustes(); };
 
 // ---------- ajustes ----------
-function abrirAjustes() { $("inClave").value = leer("clave", ""); $("selModelo").value = leer("modelo", "auto"); $("dlgAjustes").showModal(); }
+function abrirAjustes() { $("notaServidor").hidden = !SERVIDOR; $("inClave").value = leer("clave", ""); $("selModelo").value = leer("modelo", "auto"); $("dlgAjustes").showModal(); }
 $("selModelo").onchange = () => guardar("modelo", $("selModelo").value);
 $("btnAjustes").onclick = abrirAjustes;
 $("btnGuardarClave").onclick = () => { guardar("clave", $("inClave").value.trim()); $("dlgAjustes").close(); actualizarInicio(); };
@@ -251,55 +255,6 @@ function reducirImagen(archivo, lado = 1568) {
     img.src = url;
   });
 }
-
-const INSTRUCCIONES = `Eres un experto en reconocer posiciones de ajedrez en imágenes.
-La imagen puede ser una foto de un tablero físico (con perspectiva, sombras o reflejos) o una
-captura o foto de la pantalla de Lichess, Chess.com u otra app, un libro o la TV.
-
-Devuelve la posición SIEMPRE desde el punto de vista de las blancas: filas[0] es la fila 8
-(a8..h8) y filas[7] es la fila 1 (a1..h1); dentro de cada fila, de la columna a a la h.
-
-Cómo orientarte (muy importante):
-1. Decide qué bando está más cerca de la cámara mirando dónde están la mayoría de las piezas de
-   cada color, los peones y los reyes/torres que no se han movido.
-2. Para un jugador sentado frente al tablero, la casilla de la esquina inferior derecha es clara.
-   Úsalo para confirmar la orientación.
-3. Las letras y números impresos en tableros físicos a menudo están al revés o no corresponden
-   con cómo se colocaron las piezas: NO te fíes de ellos si contradicen los puntos 1 y 2.
-   En capturas de pantalla de apps sí son fiables.
-4. Si las blancas están lejos de la cámara (negras abajo), gira la posición antes de escribirla.
-
-Para leer las casillas en una foto con perspectiva, sigue las líneas del tablero: las piezas
-altas se inclinan, así que ubica cada pieza por su BASE (donde toca el tablero), no por su cabeza.
-Cuenta columnas y filas desde las esquinas. Distingue bien: rey (el más alto, con cruz o punta),
-dama (alta, con corona o bola), alfil (cabeza en punta o con ranura), caballo (cabeza de caballo),
-torre (almenas o cilindro plano), peón (el más bajo, con bola). Comprueba que el resultado sea
-una posición de ajedrez posible (1 rey por bando, máximo 8 peones, sin peones en filas 1 y 8).
-
-Cada fila tiene exactamente 8 caracteres: K Q R B N P para piezas blancas, k q r b n p para
-negras y "." para casilla vacía. Revisa casilla por casilla y comprueba que cada fila tenga 8.
-En "turno" pon "w" o "b" solo si la imagen lo indica claramente (reloj activo, última jugada
-resaltada, texto de turno); si no se sabe, "?".
-En "turno_probable" pon siempre "w" o "b": tu mejor estimación. Si no hay pistas, cuenta cuántas
-jugadas parece haber hecho cada bando (piezas fuera de su casilla inicial): si van parejos le toca
-a las blancas; si las blancas llevan una más, a las negras. Ten en cuenta también que el bando que
-no juega no puede estar en jaque.
-En "notas" explica en español, en una o dos frases cortas, cualquier duda (casillas tapadas,
-piezas que no se distinguen). Si todo está claro, deja "notas" vacío.
-Si la imagen no muestra un tablero de ajedrez, es_tablero = false.`;
-
-const ESQUEMA = {
-  type: "object",
-  properties: {
-    es_tablero: { type: "boolean" },
-    filas: { type: "array", items: { type: "string" } },
-    turno: { type: "string", enum: ["w", "b", "?"] },
-    turno_probable: { type: "string", enum: ["w", "b"] },
-    notas: { type: "string" },
-  },
-  required: ["es_tablero", "filas", "turno", "turno_probable", "notas"],
-  additionalProperties: false,
-};
 
 let controlRec = null;
 async function reconocer(dataUrl, clave, clave_modelo) {
@@ -326,6 +281,31 @@ async function reconocer(dataUrl, clave, clave_modelo) {
   const texto = r.content.find((b) => b.type === "text")?.text || "";
   let d;
   try { d = JSON.parse(texto); } catch { throw new Error("La respuesta llegó incompleta; intenta de nuevo."); }
+  return convertirLectura(d);
+}
+
+/** Lectura del servidor compartido (sin clave propia; siempre Haiku). */
+async function leerConServidor(dataUrl) {
+  controlRec = new AbortController();
+  let r;
+  try {
+    r = await fetch(SERVIDOR.replace(/\/$/, "") + "/leer", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ imagen: dataUrl }), signal: controlRec.signal,
+    });
+  } catch (e) {
+    if (e.name === "AbortError") throw e;
+    throw new Error("Sin conexión con el servicio. Revisa tu internet.");
+  }
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(d.error || `El servicio respondió con un error (${r.status}).`);
+  const res = convertirLectura(d);
+  if (typeof d.quedan === "number" && d.quedan <= 5) res.notas = [res.notas, `Te quedan ${d.quedan} fotos por hoy.`].filter(Boolean).join(" ");
+  return res;
+}
+
+/** Respuesta de Claude ({es_tablero, filas, turno, ...}) -> matriz del tablero. */
+function convertirLectura(d) {
   if (!d.es_tablero) throw new Error("No veo un tablero de ajedrez en la foto. " + (d.notas || ""));
   const filas = (d.filas || []).slice(0, 8);
   while (filas.length < 8) filas.push("........");
@@ -368,7 +348,23 @@ async function procesarFoto(archivo) {
   try { dataUrl = await reducirImagen(archivo); } catch (e) { alert(e.message); return; }
   est.foto = dataUrl;
   const clave = leer("clave", "");
-  if (!clave) { $("dlgSinClave").showModal(); return; }
+  if (!clave) {
+    if (!SERVIDOR) { $("dlgSinClave").showModal(); return; }
+    // Sin clave propia: servicio compartido (Haiku).
+    $("fotoCargando").src = dataUrl;
+    $("textoCargando").textContent = "Leyendo la foto…";
+    mostrar("vCargando");
+    try {
+      const res = interpretar(await leerConServidor(dataUrl));
+      if (cancelado()) return;
+      if (res.prob) { abrirEditor(res.fen, { notas: [res.notas, res.prob, "Corrige la posición."].filter(Boolean).join(" "), esError: true }); return; }
+      abrirAnalisis(res.fen, { notas: res.notas, turnoAdivinado: res.adivinado });
+    } catch (e) {
+      if (cancelado(e)) return;
+      abrirEditor(INICIAL, { notas: (e.message || String(e)) + " Puedes armar la posición a mano.", esError: true });
+    }
+    return;
+  }
   const modo = leer("modelo", "auto");
   // «auto»: primero Haiku (casi gratis); si falla o la posición sale imposible, Sonnet.
   const intentos = modo === "auto" ? ["haiku", "sonnet"] : [MODELOS[modo] ? modo : "haiku"];
